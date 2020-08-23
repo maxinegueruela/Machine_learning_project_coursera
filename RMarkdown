@@ -1,0 +1,172 @@
+---
+title: "Machine Learning Course Project"
+author: "Maximiliano Fernández" 
+date: "23/08/2020"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Analysing human body movement
+
+## Executive Summary
+
+This project is from Coursera Machine Learning Course assingment on predicting the outcome of physical excercise.
+
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. Then, with the previous data, predict the manner in which they did the exercise. This is the "classe" variable in the training set. The final model will be used to predict 20 different test cases.
+
+
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The training data for this project are available here:
++ https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
++ https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source:
++ http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. 
+
+Workflow of the project.
+The project is divided in three parts:
+
++	Getting and cleaning data: where the data is downloaded from the Internet, identigy how it is composed and then cleaned, because the original data has incomplete data or NA
++ Modeling in order to find the best model that can predict the Classe (factor variable) of the data
++ Final discussion
+
+The object is to predict the Class variable, which can be: A, B, C, D or E (factor variables). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+
+The accuracy indicator is used to identify and select the best model.
+
+
+For more information in  Human Activity Recognition: 
++ http://groupware.les.inf.puc-rio.br/har#ixzz6VtX3Luqn
+
+
+### 1. Getting and cleaning data
+
+First download and process the raw data from the 
+
+```{r data}
+if(!file.exists("pml-training.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                destfile = "pml-training.csv", method = "curl")
+}
+
+if(!file.exists("pml-testing.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                destfile = "pml-testing.csv", method = "curl")
+}
+
+# Load libraries
+#suppressMessages(library(dplyr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(caret))
+suppressMessages(library(rattle))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(randomForest))
+
+#Read data from working directory
+training <-read.csv("pml-training.csv", sep=",", header=T, na.strings=c("NA","#DIV/0!", ""))
+testing <-read.csv("pml-testing.csv", sep=",", header=T, na.strings=c("NA","#DIV/0!", ""))
+```
+Search how is composed the training data
+
+```{r data_analysis}
+dim(training)
+```
+
+There are 19.622 observations and 160 columns. However, there might be NAs, which should be takem into account
+
+```{r Na count}
+sum(is.na(training))
+```
+As there are 1.925.102 missing values. It might seem that various columns containg all NA.
+
+In order to clean the data, the previous columns will be extracted from the training and testing set
+```{r col_cleaning}
+training <- training [,colSums(is.na(training)) == 0]
+testing <- testing [,colSums(is.na(training)) == 0]
+```
+
+In addition to deleting the columns with NA values, other columns do not add information to the analysis. These columns are: user_name, raw_timestamp_part_1, raw_timestamp_part_,2 cvtd_timestamp, new_window, and  num_window, and are the first seven columns of the data frame.
+
+```{r subset}
+training <- training[,-c(1:7)]
+testing <- testing[,-c(1:7)]
+```
+
+#### Create new training and testing set
+After cleaning the trainig data set, another training set is created, now  only with 70% of the original set, and the other 30% to a new testing set. The new training data will be use to create various models which will then be tested in the new testing data to perfom cross validation.
+Once the best model is defined, using the accuracy indicator, it will be tested in the original testing data, which contains 20 samples
+The new training data will be created taking randomly 70% of the original training set (without replacement) 
+
+```{r new_training_set}
+# Set seed for reproducibility
+set.seed(555)
+inTrain = createDataPartition(y=training$classe, p = 0.7,list=FALSE)
+training_2 = training[ inTrain,]
+testing_2 = training[-inTrain,]
+```
+
+ See how is distributed
+```{r plot_classe}
+qplot(training_2$classe, ylab = "Observations", xlab = "Class of excercise")
+```
+From the previous model, the most common class of excercise is type A. However, the other types (B, C, D and E) have more observations than the first one, that is, most of the excercises where not completed using the optimal movement of the body parts.
+
+### 2. Modeling
+
+The first model to use will be a decision tree, which is useful approach to try when the data has many predictors is to model a deccission tree (https://en.wikipedia.org/wiki/Decision_tree). 
+
+```{r model_dec_tree}
+modFit_Dec_Tree <- rpart(classe ~ ., data=training_2, method="class")
+print(modFit_Dec_Tree, digits = 2)
+fancyRpartPlot(modFit_Dec_Tree, palettes=c("Greys", "Oranges"))
+```
+
+After modeling the decission tree with the training set, it is possible to predict the outcome (Class of the excercise) with the testing set. After it, a consufion matrix (https://honingds.com/blog/confusion-matrix-in-r/) gives the accuracy, and other indicatior, on how well can the model predict with new data.
+
+```{r model_dec_tree_prediction}
+test_predict <- predict(modFit_Dec_Tree,newdata=testing_2, type = "class")
+confusionMatrix(test_predict, testing_2$classe)$overall[1]
+```
+
+The accuracy of the model is 73.63%, that is, the model can correctly identify the class of the excercise 73.63% of the time. Moreover, the Kappa indicator is 0.6657, which is a subtancial indicator of the inter-rater reliability (https://en.wikipedia.org/wiki/Cohen%27s_kappa)
+
+A model that should fit better to the data is a Random Forest, which is one of the most commonly used and the most powerful machine learning techniques. It is a special type of bagging applied to decision trees. Compared to the standard decision tree algorithm,  the random forest provides a strong improvement, which consists of applying bagging to the data and bootstrap sampling to the predictor variables at each split (James et al. 2014, P. Bruce and Bruce (2017)). This means that at each splitting step of the tree algorithm, a random sample of n predictors is chosen as split candidates from the full set of the predictors.
+
+Random forest can be used for both classification (predicting a categorical variable) and regression (predicting a continuous variable).
+More information: http://www.sthda.com/english/articles/35-statistical-machine-learning-essentials/140-bagging-and-random-forest-essentials
+
+
+## Prediction with random forest
+```{r model_random_forest}
+modFit_Ran_Forest <- randomForest(classe ~ ., data=training_2, method="class")
+```
+
+```{r model_random_forest_prediction}
+test_predict_Ran_forest <- predict(modFit_Ran_Forest,newdata=testing_2, type = "class")
+confusionMatrix(test_predict_Ran_forest, testing_2$classe)
+```
+
+The random forest model has an accuracy of 99.5% which is better than the 73.6% of the decision tree model. Furthermothe, the kappa coeficient, increased from 0.66 from the decision tree to 0.9938 in the random forest.
+
+
+### Prediction on the origina test set
+```{r model_predict_final_testing}
+predict_test <- predict(modFit_Ran_Forest, newdata = testing, type = "class")
+```
+
+## Discussion
+Although a decision tree usually provides an adecuate model to predict values with many predictors, in the previous example, this model provided an accuracy of 76% against a 99.5% accuracy of the random forest model. The last model is the best of both and should be used in the case more data need to be predicted.
+The original data have an important issue, which is that the data was colected from 6 different males from ages between 20 and 28 years old. Because of this, the model could not fit well with new information from other types of test subjects, for example, elderly people might not get the same observations of the accelerometers and then lead the model to incorrect assumptions.
